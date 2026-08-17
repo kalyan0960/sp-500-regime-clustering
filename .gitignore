@@ -1,1 +1,26 @@
+# Python environments and cache files
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Jupyter temporary files
+.ipynb_checkpoints/
+
+# Generated project outputs
 data/
+figures/
+models/
+*.joblib
+*.pkl
+*.h5
+*.keras
+*.pt
+*.pth
+
+# Local environment settings (keep shareable templates tracked)
+.env
+.env.local
+.env.*.local
+!.env.example
