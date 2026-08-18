@@ -36,7 +36,7 @@ The project is configured as a `src`-layout package. During development, it can 
 ## Research status
 
 - Original K-means notebooks: preserved exploratory baseline.
-- Revised feature construction and data validation: planned.
+- Stage 6 data validation and Stage 7 pre-GARCH feature construction: implemented.
 - GARCH conditional volatility and HMM regimes: planned.
 - Transition outcomes, supplementary ANOVA, and logistic regression: planned.
 
