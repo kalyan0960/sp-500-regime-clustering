@@ -8,6 +8,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 from hmmlearn.hmm import GaussianHMM
+from scipy.optimize import linear_sum_assignment
 from scipy.special import logsumexp
 from scipy.stats import multivariate_normal
 from sklearn.metrics import adjusted_rand_score
@@ -444,3 +445,123 @@ def summarize_candidate(
         }
     }
     return base, sizes, durations, metadata
+
+
+def reconstruct_candidate(
+    parameters: dict, observations: np.ndarray, k: int, covariance_type: str
+) -> tuple[GaussianHMM, np.ndarray, float]:
+    """Rehydrate saved HMM parameters and decode without fitting or reinitializing."""
+    model = GaussianHMM(
+        n_components=k, covariance_type=covariance_type, init_params="", params="",
+        random_state=int(parameters["seed"]),
+    )
+    model.startprob_ = np.asarray(parameters["startprob"], dtype=float)
+    model.transmat_ = np.asarray(parameters["transmat"], dtype=float)
+    model.means_ = np.asarray(parameters["means"], dtype=float)
+    covariances = np.asarray(parameters["covars"], dtype=float)
+    if covariance_type == "diag" and covariances.ndim == 3:
+        covariances = np.diagonal(covariances, axis1=1, axis2=2)
+    model.covars_ = covariances
+    model.n_features = model.means_.shape[1]
+    values = np.asarray(observations, dtype=float)
+    return model, model.predict(values), float(model.score(values))
+
+
+def original_scale_profiles(training: pd.DataFrame, states: np.ndarray, k: int) -> pd.DataFrame:
+    """Summarize decoded training states using only authorized original-scale features."""
+    validate_features(FEATURES)
+    result = training.loc[:, FEATURES].copy()
+    result["state"] = np.asarray(states, dtype=int)
+    rows = []
+    for state in range(k):
+        subset = result.loc[result["state"] == state, FEATURES]
+        rows.append(
+            {
+                "state": state,
+                "count": len(subset),
+                "percentage": 100 * len(subset) / len(result),
+                "mean_Log_Return": subset["Log_Return"].mean(),
+                "median_Log_Return": subset["Log_Return"].median(),
+                "std_Log_Return": subset["Log_Return"].std(ddof=1),
+                "mean_GARCH_Volatility_TrainFit": subset["GARCH_Volatility_TrainFit"].mean(),
+                "median_GARCH_Volatility_TrainFit": subset["GARCH_Volatility_TrainFit"].median(),
+                "std_GARCH_Volatility_TrainFit": subset["GARCH_Volatility_TrainFit"].std(ddof=1),
+                "mean_Drawdown_252": subset["Drawdown_252"].mean(),
+                "median_Drawdown_252": subset["Drawdown_252"].median(),
+                "std_Drawdown_252": subset["Drawdown_252"].std(ddof=1),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def ordered_stress_states(profiles: pd.DataFrame) -> pd.DataFrame:
+    """Order states low-to-high stress by volatility, drawdown, then return.
+
+    The lexicographic rule ranks lower mean GARCH volatility first; ties are broken
+    by higher (less-negative) mean drawdown, then higher mean log return.
+    """
+    ordered = profiles.sort_values(
+        ["mean_GARCH_Volatility_TrainFit", "mean_Drawdown_252", "mean_Log_Return"],
+        ascending=[True, False, False],
+        kind="stable",
+    ).copy()
+    ordered["stress_rank"] = np.arange(1, len(ordered) + 1)
+    ordered["ordered_state_name"] = "Ordered_State_" + ordered["stress_rank"].astype(str)
+    return ordered.sort_values("state").reset_index(drop=True)
+
+
+def finalist_duration_summary(states: np.ndarray, transition: np.ndarray, k: int) -> pd.DataFrame:
+    """Return complete empirical and Markov-implied duration diagnostics by state."""
+    summary = empirical_duration_summary(states, k)
+    all_episodes = episodes(states)
+    rows = []
+    for state in range(k):
+        durations = [item["duration"] for item in all_episodes if item["state"] == state]
+        row = summary.loc[summary["state"] == state].iloc[0].to_dict()
+        row.update(
+            {
+                "self_transition_probability": float(transition[state, state]),
+                "expected_duration": float(expected_durations(transition)[state]),
+                "minimum_duration": int(np.min(durations)),
+                "maximum_duration": int(np.max(durations)),
+                "one_day_episode_percentage": 100 * row["one_day_episode_count"] / row["episode_count"],
+            }
+        )
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+
+def centroid_distances(means: np.ndarray) -> pd.DataFrame:
+    """Calculate all pairwise Euclidean distances between standardized emission means."""
+    values = np.asarray(means, dtype=float)
+    rows = []
+    for left in range(len(values)):
+        for right in range(left + 1, len(values)):
+            rows.append({"state_left": left, "state_right": right,
+                         "standardized_centroid_distance": float(np.linalg.norm(values[left] - values[right]))})
+    return pd.DataFrame(rows)
+
+
+def aligned_state_crosstab(
+    lower_states: np.ndarray, lower_means: np.ndarray,
+    higher_states: np.ndarray, higher_means: np.ndarray,
+) -> tuple[pd.DataFrame, dict[int, int]]:
+    """Cross-tab decoded sequences after closest-centroid alignment to lower-K states.
+
+    A Hungarian one-to-one match assigns the first lower-K matches; every additional
+    higher-K state is assigned to its nearest lower-K centroid, revealing splits.
+    """
+    lower_means, higher_means = np.asarray(lower_means), np.asarray(higher_means)
+    distances = np.linalg.norm(lower_means[:, None, :] - higher_means[None, :, :], axis=2)
+    lower_index, higher_index = linear_sum_assignment(distances)
+    mapping = {int(high): int(low) for low, high in zip(lower_index, higher_index)}
+    for high in range(len(higher_means)):
+        mapping.setdefault(high, int(np.argmin(distances[:, high])))
+    table = pd.crosstab(
+        pd.Series(lower_states, name="lower_state"),
+        pd.Series(higher_states, name="higher_state"),
+        dropna=False,
+    ).reindex(index=range(len(lower_means)), columns=range(len(higher_means)), fill_value=0)
+    long = table.stack().rename("count").reset_index()
+    long["aligned_to_lower_state"] = long["higher_state"].map(mapping)
+    return long, mapping

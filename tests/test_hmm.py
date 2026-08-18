@@ -19,7 +19,13 @@ from market_regime.hmm_model import (
     parameter_count,
     candidate_stability,
     covariance_warnings,
+    centroid_distances,
     degeneracy_warnings,
+    finalist_duration_summary,
+    original_scale_profiles,
+    ordered_stress_states,
+    aligned_state_crosstab,
+    reconstruct_candidate,
     training_feature_scaler,
     validate_features,
     validate_markov,
@@ -223,3 +229,32 @@ def test_covariance_validation_flags_near_singularity():
 
     warning = covariance_warnings(DummyModel())
     assert warning["near_singular_states"] == [0]
+
+
+def test_finalist_reconstruction_profiles_durations_and_distances():
+    observations = np.vstack([np.zeros((10, 2)), np.full((10, 2), 3.0)])
+    fitted = fit_hmm_candidate(observations, 2, "diag", seed=7, n_iter=50)
+    parameters = {"seed": 7, "startprob": fitted["model"].startprob_.tolist(),
+                  "transmat": fitted["model"].transmat_.tolist(), "means": fitted["model"].means_.tolist(),
+                  "covars": np.asarray(fitted["model"].covars_).tolist()}
+    model, states, likelihood = reconstruct_candidate(parameters, observations, 2, "diag")
+    assert likelihood == pytest.approx(fitted["log_likelihood"])
+    frame = pd.DataFrame({"Log_Return": observations[:, 0], "GARCH_Volatility_TrainFit": observations[:, 1], "Drawdown_252": observations[:, 0] - 3})
+    profiles = original_scale_profiles(frame, states, 2)
+    assert profiles["count"].sum() == len(frame)
+    durations = finalist_duration_summary(states, np.array([[0.9, 0.1], [0.1, 0.9]]), 2)
+    assert {"minimum_duration", "maximum_duration", "one_day_episode_percentage"}.issubset(durations.columns)
+    assert len(centroid_distances(model.means_)) == 1
+
+
+def test_alignment_crosstab_ordering_and_external_variable_exclusion():
+    profiles = pd.DataFrame({"state": [0, 1], "mean_GARCH_Volatility_TrainFit": [0.01, 0.02],
+                             "mean_Drawdown_252": [-0.01, -0.2], "mean_Log_Return": [0.01, -0.01]})
+    ordered = ordered_stress_states(profiles)
+    assert ordered.loc[ordered["stress_rank"] == 1, "state"].iloc[0] == 0
+    cross, mapping = aligned_state_crosstab(np.array([0, 0, 1]), np.array([[0.0], [3.0]]),
+                                             np.array([0, 2, 1]), np.array([[0.1], [3.1], [0.2]]))
+    assert cross["count"].sum() == 3
+    assert set(mapping) == {0, 1, 2}
+    with pytest.raises(HMMValidationError):
+        validate_features(["Log_Return", "VIX_Close", "Drawdown_252"])
