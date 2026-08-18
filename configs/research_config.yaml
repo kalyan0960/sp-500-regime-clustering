@@ -1,0 +1,31 @@
+project:
+  name: sp-500-regime-clustering
+  random_seed: 42
+
+data:
+  market_ticker: SPY
+  vix_ticker: ^VIX
+  start_date: "2000-01-01"
+  end_date: "2026-05-31"
+  training_end: "2017-12-31"
+  test_start: "2018-01-01"
+
+features:
+  abnormal_volume_window: 20
+  primary_drawdown_window: 252
+  robustness_drawdown_window: 60
+
+regime_models:
+  candidate_states: [2, 3, 4, 5]
+  low_confidence_threshold: 0.60
+
+transitions:
+  primary_horizon: 5
+  robustness_horizons: [1, 10, 20]
+
+storage:
+  raw_data_directory: data/raw
+  processed_data_directory: data/processed
+  figures_directory: outputs/figures
+  tables_directory: outputs/tables
+  models_directory: outputs/models

@@ -1,3 +1,26 @@
+Metadata-Version: 2.4
+Name: sp-500-regime-clustering
+Version: 0.1.0
+Summary: Research infrastructure for market-regime and abnormal-volume analysis.
+Requires-Python: <3.13,>=3.12
+Description-Content-Type: text/markdown
+Requires-Dist: pandas<3.1,>=2.2
+Requires-Dist: numpy<3,>=1.26
+Requires-Dist: yfinance<2,>=0.2
+Requires-Dist: scikit-learn<2,>=1.4
+Requires-Dist: matplotlib<4,>=3.8
+Requires-Dist: seaborn<1,>=0.13
+Requires-Dist: scipy<2,>=1.11
+Requires-Dist: statsmodels<1,>=0.14
+Requires-Dist: arch<9,>=7
+Requires-Dist: hmmlearn<1,>=0.3
+Requires-Dist: PyYAML<7,>=6
+Requires-Dist: ipykernel<7,>=6
+Requires-Dist: nbformat<6,>=5.9
+Requires-Dist: nbclient<1,>=0.10
+Requires-Dist: pytest<10,>=8
+Requires-Dist: pingouin<1,>=0.5.4
+
 # Market Regime Identification and Abnormal-Volume Transition Prediction
 
 ## Overview

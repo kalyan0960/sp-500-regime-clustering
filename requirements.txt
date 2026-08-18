@@ -1,5 +1,18 @@
-pandas
-numpy
-yfinance
-scikit-learn
-matplotlib
+pandas>=2.2,<3.1
+numpy>=1.26,<3
+yfinance>=0.2,<2
+scikit-learn>=1.4,<2
+matplotlib>=3.8,<4
+seaborn>=0.13,<1
+scipy>=1.11,<2
+statsmodels>=0.14,<1
+arch>=7,<9
+hmmlearn>=0.3,<1
+PyYAML>=6,<7
+# Lightweight notebook support for VS Code kernels and planned notebook validation.
+ipykernel>=6,<7
+nbformat>=5.9,<6
+nbclient>=0.10,<1
+pytest>=8,<10
+# Maintained Games-Howell implementation for later supplementary analysis.
+pingouin>=0.5.4,<1
