@@ -37,7 +37,7 @@ The project is configured as a `src`-layout package. During development, it can 
 
 - Original K-means notebooks: preserved exploratory baseline.
 - Stage 6 data validation and Stage 7 pre-GARCH feature construction: implemented.
-- GARCH conditional volatility and HMM regimes: planned.
+- Stage 8 GARCH conditional-volatility estimation: implemented; HMM regimes remain planned.
 - Transition outcomes, supplementary ANOVA, and logistic regression: planned.
 
 The project distinguishes descriptive analysis, association, prediction, and causation. The revised methods are intended to test predictive value on a later unseen period; they do not, by themselves, establish causation.
