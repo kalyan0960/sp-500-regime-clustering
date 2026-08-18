@@ -3,6 +3,7 @@
 import numpy as np
 import pandas as pd
 import pytest
+import market_regime.hmm_model as hmm_model
 
 from market_regime.hmm_model import (
     FEATURES,
@@ -13,7 +14,13 @@ from market_regime.hmm_model import (
     expected_durations,
     filtered_summary,
     forward_filter,
+    fit_hmm_candidate,
+    fit_multiple_seeds,
     parameter_count,
+    candidate_stability,
+    covariance_warnings,
+    degeneracy_warnings,
+    training_feature_scaler,
     validate_features,
     validate_markov,
 )
@@ -149,3 +156,70 @@ def test_forward_filter_supports_full_covariance(fixed_hmm):
 def test_low_confidence_is_strictly_below_threshold():
     summary = filtered_summary([[0.60, 0.40], [0.59, 0.41]])
     assert summary["HMM_Low_Confidence"].tolist() == [False, True]
+
+
+def test_training_scaling_excludes_later_observations():
+    frame = pd.DataFrame(
+        {
+            "Date": ["2017-12-29", "2017-12-31", "2018-01-02"],
+            "Log_Return": [0.0, 2.0, 1_000.0],
+            "GARCH_Volatility_TrainFit": [1.0, 3.0, 1_000.0],
+            "Drawdown_252": [-0.1, -0.3, 1_000.0],
+        }
+    )
+    scaler, training, scaled = training_feature_scaler(frame, "2017-12-31")
+    assert len(training) == 2
+    assert np.allclose(scaler.mean_, [1.0, 2.0, -0.2])
+    assert np.allclose(scaled.mean(axis=0), 0.0)
+
+
+def test_candidate_fitting_is_reproducible(fixed_hmm):
+    observations = np.vstack([np.zeros((20, 2)), np.full((20, 2), 3.0)])
+    first = fit_hmm_candidate(observations, 2, "diag", seed=7, n_iter=50)
+    second = fit_hmm_candidate(observations, 2, "diag", seed=7, n_iter=50)
+    assert first["converged"] and second["converged"]
+    assert first["log_likelihood"] == pytest.approx(second["log_likelihood"])
+    assert np.array_equal(first["states"], second["states"])
+
+
+def test_best_run_selection_retains_highest_converged_likelihood(monkeypatch):
+    def fake_fit(_observations, _k, _covariance, seed, **_kwargs):
+        return {"seed": seed, "converged": seed != 2, "log_likelihood": float(seed), "status": "converged" if seed != 2 else "failed"}
+
+    monkeypatch.setattr(hmm_model, "fit_hmm_candidate", fake_fit)
+    result = fit_multiple_seeds(np.ones((2, 1)), 2, "diag", [1, 2, 3])
+    assert result["best_run"]["seed"] == 3
+
+
+def test_failed_fit_is_recorded():
+    class FailingModel:
+        def __init__(self, **_kwargs):
+            pass
+
+        def fit(self, _observations):
+            raise RuntimeError("deterministic fit failure")
+
+    result = fit_hmm_candidate(np.ones((5, 1)), 2, "diag", seed=1, model_factory=FailingModel)
+    assert result["status"] == "failed"
+    assert "RuntimeError" in result["error"]
+
+
+def test_stability_and_degeneracy_detection():
+    runs = [
+        {"converged": True, "states": np.array([0, 0, 1, 1])},
+        {"converged": True, "states": np.array([1, 1, 0, 0])},
+    ]
+    assert candidate_stability(runs)["ari_mean"] == pytest.approx(1.0)
+    warning = degeneracy_warnings(np.array([0, 0, 0]), 2)
+    assert warning["degenerate_states"] == [1]
+
+
+def test_covariance_validation_flags_near_singularity():
+    class DummyModel:
+        covariance_type = "diag"
+        covars_ = np.array(
+            [[[1.0, 0.0], [0.0, 1e-8]], [[2.0, 0.0], [0.0, 3.0]]]
+        )
+
+    warning = covariance_warnings(DummyModel())
+    assert warning["near_singular_states"] == [0]

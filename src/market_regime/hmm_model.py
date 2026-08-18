@@ -7,8 +7,11 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+from hmmlearn.hmm import GaussianHMM
 from scipy.special import logsumexp
 from scipy.stats import multivariate_normal
+from sklearn.metrics import adjusted_rand_score
+from sklearn.preprocessing import StandardScaler
 
 
 HMM_FEATURES = (
@@ -192,3 +195,252 @@ def filtered_summary(probabilities: np.ndarray, threshold: float = 0.60) -> pd.D
             "HMM_Low_Confidence": maximum < threshold,
         }
     )
+
+
+def training_feature_scaler(
+    frame: pd.DataFrame, training_end: str | pd.Timestamp
+) -> tuple[StandardScaler, pd.DataFrame, np.ndarray]:
+    """Fit a scaler only on finite authorized observations through ``training_end``.
+
+    ``Date`` is used when supplied; otherwise the DataFrame index must be datetime-like.
+    The returned DataFrame is a copy of only training-eligible observations.
+    """
+    dates = pd.to_datetime(frame["Date"] if "Date" in frame else frame.index)
+    training = frame.loc[dates <= pd.Timestamp(training_end)].copy()
+    training = eligible_sample(training)
+    if training.empty:
+        raise HMMValidationError("No eligible training observations are available.")
+    scaler = StandardScaler().fit(training.loc[:, FEATURES])
+    return scaler, training, scaler.transform(training.loc[:, FEATURES])
+
+
+def fit_hmm_candidate(
+    observations: np.ndarray,
+    k: int,
+    covariance_type: str,
+    seed: int,
+    *,
+    n_iter: int = 250,
+    tol: float = 1e-3,
+    model_factory=GaussianHMM,
+) -> dict:
+    """Fit one fixed-seed Gaussian-HMM candidate and capture any failure."""
+    values = np.asarray(observations, dtype=float)
+    if values.ndim != 2 or len(values) == 0 or not np.isfinite(values).all():
+        raise HMMValidationError("Candidate observations must be a non-empty finite matrix.")
+    if covariance_type not in {"diag", "full"}:
+        raise HMMValidationError("covariance_type must be 'diag' or 'full'.")
+    record = {"K": k, "covariance_type": covariance_type, "seed": int(seed)}
+    try:
+        model = model_factory(
+            n_components=k,
+            covariance_type=covariance_type,
+            random_state=seed,
+            n_iter=n_iter,
+            tol=tol,
+            min_covar=1e-6,
+            implementation="log",
+        )
+        model.fit(values)
+        history = list(model.monitor_.history)
+        final_change = history[-1] - history[-2] if len(history) > 1 else np.nan
+        declined = bool(np.isfinite(final_change) and final_change < -tol)
+        converged = bool(model.monitor_.converged) and not declined
+        log_likelihood = float(model.score(values))
+        states = model.predict(values)
+        record.update(
+            {
+                "status": "converged" if converged else "not_converged",
+                "converged": converged,
+                "log_likelihood": log_likelihood,
+                "iterations": int(model.monitor_.iter),
+                "convergence_warning": (
+                    f"final log-likelihood decreased by {final_change:.6g}" if declined else ""
+                ),
+                "states": states,
+                "model": model,
+                "error": "",
+            }
+        )
+    except Exception as error:  # hmmlearn failures are candidate evidence, not silent skips.
+        record.update(
+            {
+                "status": "failed",
+                "converged": False,
+                "log_likelihood": np.nan,
+                "iterations": np.nan,
+                "convergence_warning": "",
+                "states": None,
+                "model": None,
+                "error": f"{type(error).__name__}: {error}",
+            }
+        )
+    return record
+
+
+def fit_multiple_seeds(
+    observations: np.ndarray,
+    k: int,
+    covariance_type: str,
+    seeds: list[int] | tuple[int, ...],
+    **kwargs,
+) -> dict:
+    """Fit all starts and retain the highest-likelihood converged run only."""
+    runs = [fit_hmm_candidate(observations, k, covariance_type, seed, **kwargs) for seed in seeds]
+    converged = [run for run in runs if run["converged"]]
+    best = max(converged, key=lambda run: run["log_likelihood"], default=None)
+    return {"runs": runs, "best_run": best}
+
+
+def candidate_stability(runs: list[dict]) -> dict[str, float]:
+    """Summarize all pairwise ARIs among converged fixed-seed decodings."""
+    decodings = [run["states"] for run in runs if run.get("converged")]
+    aris = [
+        adjusted_rand_score(decodings[left], decodings[right])
+        for left in range(len(decodings))
+        for right in range(left + 1, len(decodings))
+    ]
+    if not aris:
+        return {"ari_mean": np.nan, "ari_min": np.nan, "ari_std": np.nan, "ari_pairs": 0}
+    return {
+        "ari_mean": float(np.mean(aris)),
+        "ari_min": float(np.min(aris)),
+        "ari_std": float(np.std(aris)),
+        "ari_pairs": len(aris),
+    }
+
+
+def state_sizes(states: np.ndarray, k: int) -> pd.DataFrame:
+    """Return every state count and share, including unoccupied states."""
+    values = np.asarray(states, dtype=int)
+    counts = np.bincount(values, minlength=k)
+    return pd.DataFrame(
+        {
+            "state": np.arange(k),
+            "count": counts,
+            "percentage": 100 * counts / len(values),
+        }
+    )
+
+
+def transition_matrix(model: GaussianHMM) -> np.ndarray:
+    """Return a validated copied transition matrix from a fitted HMM."""
+    _, transition = validate_markov(model.startprob_, model.transmat_)
+    return transition.copy()
+
+
+def empirical_duration_summary(states: np.ndarray, k: int) -> pd.DataFrame:
+    """Calculate episode counts, duration summaries, and one-day episodes by state."""
+    all_episodes = episodes(states)
+    rows = []
+    for state in range(k):
+        durations = [episode["duration"] for episode in all_episodes if episode["state"] == state]
+        rows.append(
+            {
+                "state": state,
+                "episode_count": len(durations),
+                "empirical_mean_duration": float(np.mean(durations)) if durations else np.nan,
+                "empirical_median_duration": float(np.median(durations)) if durations else np.nan,
+                "one_day_episode_count": int(np.sum(np.asarray(durations) == 1)),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def degeneracy_warnings(
+    states: np.ndarray, k: int, min_state_fraction: float = 0.01
+) -> dict[str, object]:
+    """Flag unoccupied and small decoded states without changing the candidate."""
+    sizes = state_sizes(states, k)
+    minimum = int(np.ceil(len(states) * min_state_fraction))
+    degenerate = sizes.loc[sizes["count"] == 0, "state"].tolist()
+    small = sizes.loc[(sizes["count"] > 0) & (sizes["count"] < minimum), "state"].tolist()
+    warnings = []
+    if degenerate:
+        warnings.append(f"degenerate unoccupied states: {degenerate}")
+    if small:
+        warnings.append(f"small states below {min_state_fraction:.1%} of training rows: {small}")
+    return {
+        "small_state_threshold": minimum,
+        "degenerate_states": degenerate,
+        "small_states": small,
+        "warning": "; ".join(warnings),
+    }
+
+
+def covariance_warnings(model: GaussianHMM, tolerance: float = 1e-6) -> dict[str, object]:
+    """Flag non-finite, non-positive, or near-singular fitted covariance estimates."""
+    covariances = np.asarray(model.covars_, dtype=float)
+    warnings: list[str] = []
+    minimum_eigenvalues: list[float] = []
+    if not np.isfinite(covariances).all():
+        warnings.append("non-finite covariance estimate")
+    if model.covariance_type == "diag":
+        diagonal_values = (
+            np.diagonal(covariances, axis1=1, axis2=2)
+            if covariances.ndim == 3
+            else covariances
+        )
+        minimum_eigenvalues = np.min(diagonal_values, axis=1).tolist()
+    else:
+        minimum_eigenvalues = [float(np.min(np.linalg.eigvalsh(matrix))) for matrix in covariances]
+    near_singular = [index for index, value in enumerate(minimum_eigenvalues) if value <= tolerance]
+    if near_singular:
+        warnings.append(f"near-singular covariance states: {near_singular}")
+    return {
+        "minimum_covariance_eigenvalues": minimum_eigenvalues,
+        "near_singular_states": near_singular,
+        "warning": "; ".join(warnings),
+    }
+
+
+def summarize_candidate(
+    fit_result: dict, observations: np.ndarray, k: int, covariance_type: str
+) -> tuple[dict, pd.DataFrame, pd.DataFrame, dict]:
+    """Build training-only comparison, state-size, duration, and metadata records."""
+    runs, best = fit_result["runs"], fit_result["best_run"]
+    stability = candidate_stability(runs)
+    base = {
+        "K": k,
+        "covariance_type": covariance_type,
+        "parameter_count": parameter_count(k, observations.shape[1], covariance_type),
+        "converged_start_count": sum(run["converged"] for run in runs),
+        "nonconverged_start_count": sum(run["status"] == "not_converged" for run in runs),
+        "failed_start_count": sum(run["status"] == "failed" for run in runs),
+        **stability,
+    }
+    if best is None:
+        base.update({"best_seed": np.nan, "best_training_log_likelihood": np.nan, "BIC": np.nan,
+                     "smallest_state_count": np.nan, "smallest_state_percentage": np.nan,
+                     "covariance_warning": "", "degeneracy_warning": "no converged run"})
+        return base, pd.DataFrame(), pd.DataFrame(), {"best_parameters": None}
+
+    sizes = state_sizes(best["states"], k)
+    transition = transition_matrix(best["model"])
+    durations = empirical_duration_summary(best["states"], k)
+    durations["expected_duration"] = expected_durations(transition)
+    covariance = covariance_warnings(best["model"])
+    degeneracy = degeneracy_warnings(best["states"], k)
+    sizes["K"], sizes["covariance_type"], sizes["best_seed"] = k, covariance_type, best["seed"]
+    durations["K"], durations["covariance_type"], durations["best_seed"] = k, covariance_type, best["seed"]
+    base.update(
+        {
+            "best_seed": best["seed"],
+            "best_training_log_likelihood": best["log_likelihood"],
+            "BIC": bic(best["log_likelihood"], base["parameter_count"], len(observations)),
+            "smallest_state_count": int(sizes["count"].min()),
+            "smallest_state_percentage": float(sizes["percentage"].min()),
+            "transition_matrix": transition.tolist(),
+            "diagonal_persistence_probabilities": np.diag(transition).tolist(),
+            "covariance_warning": covariance["warning"],
+            "degeneracy_warning": degeneracy["warning"],
+        }
+    )
+    metadata = {
+        "best_parameters": {
+            "seed": best["seed"], "startprob": best["model"].startprob_.tolist(),
+            "transmat": transition.tolist(), "means": best["model"].means_.tolist(),
+            "covars": np.asarray(best["model"].covars_).tolist(),
+        }
+    }
+    return base, sizes, durations, metadata
