@@ -41,3 +41,4 @@ Thumbs.db
 *.keras
 *.pt
 *.pth
+stage*-test-tmp/
