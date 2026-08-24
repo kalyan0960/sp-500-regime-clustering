@@ -565,3 +565,71 @@ def aligned_state_crosstab(
     long = table.stack().rename("count").reset_index()
     long["aligned_to_lower_state"] = long["higher_state"].map(mapping)
     return long, mapping
+
+
+def ordered_state_mapping(profiles: pd.DataFrame) -> dict[int, int]:
+    """Map zero-based original states to one-based training-profile order."""
+    ordered = ordered_stress_states(profiles)
+    return dict(zip(ordered["state"].astype(int), ordered["stress_rank"].astype(int)))
+
+
+def reorder_probabilities(probabilities: np.ndarray, mapping: dict[int, int]) -> np.ndarray:
+    """Return probability columns in ordered-state 1..K order."""
+    values = np.asarray(probabilities, dtype=float)
+    k = values.shape[1]
+    if set(mapping) != set(range(k)) or set(mapping.values()) != set(range(1, k + 1)):
+        raise HMMValidationError("State mapping must be a bijection from 0..K-1 to 1..K.")
+    ordered = np.empty_like(values)
+    for original, state in mapping.items():
+        ordered[:, state - 1] = values[:, original]
+    validate_probability_matrix(ordered)
+    return ordered
+
+
+def validate_probability_matrix(probabilities: np.ndarray, tolerance: float = 1e-8) -> None:
+    """Require finite, bounded, row-normalized state probabilities."""
+    values = np.asarray(probabilities, dtype=float)
+    if (values.ndim != 2 or values.shape[0] == 0 or not np.isfinite(values).all()
+            or np.any(values < -tolerance) or np.any(values > 1 + tolerance)
+            or not np.allclose(values.sum(axis=1), 1.0, atol=tolerance)):
+        raise HMMValidationError("State probabilities must be finite, bounded, and sum to one.")
+
+
+def selected_assignments(
+    frame: pd.DataFrame, scaler: StandardScaler, model: GaussianHMM,
+    mapping: dict[int, int], training_end: str | pd.Timestamp, threshold: float = 0.60,
+) -> pd.DataFrame:
+    """Merge leakage-safe filtered and retrospective smoothed results onto all rows."""
+    result = frame.copy()
+    dates = pd.to_datetime(result["Date"] if "Date" in result else result.index)
+    if dates.duplicated().any() or not dates.is_monotonic_increasing:
+        raise HMMValidationError("Dates must be unique and chronological.")
+    mask = np.isfinite(result.loc[:, FEATURES]).all(axis=1)
+    eligible = result.loc[mask, FEATURES]
+    observations = scaler.transform(eligible)
+    covariances = np.asarray(model.covars_, dtype=float)
+    if model.covariance_type == "diag" and covariances.ndim == 3:
+        covariances = np.diagonal(covariances, axis1=1, axis2=2)
+    filtered = reorder_probabilities(forward_filter(
+        observations, model.startprob_, model.transmat_, model.means_, covariances,
+        model.covariance_type), mapping)
+    smoothed = reorder_probabilities(model.predict_proba(observations), mapping)
+    validate_probability_matrix(filtered); validate_probability_matrix(smoothed)
+    result["HMM_Eligible"] = mask.astype(bool)
+    result["HMM_Sample"] = pd.NA
+    result.loc[mask, "HMM_Sample"] = np.where(dates[mask] <= pd.Timestamp(training_end), "Train", "Test")
+    for kind, probabilities in (("Filtered", filtered), ("Smoothed", smoothed)):
+        for state in range(1, probabilities.shape[1] + 1):
+            result[f"HMM_{kind}_Probability_State_{state}"] = np.nan
+            result.loc[mask, f"HMM_{kind}_Probability_State_{state}"] = probabilities[:, state - 1]
+        states = probabilities.argmax(axis=1) + 1
+        maximum = probabilities.max(axis=1)
+        result[f"HMM_{kind}_State"] = pd.Series(pd.NA, index=result.index, dtype="Int64")
+        result.loc[mask, f"HMM_{kind}_State"] = states
+        result[f"HMM_{kind}_State_Label"] = pd.NA
+        result.loc[mask, f"HMM_{kind}_State_Label"] = [f"Ordered_State_{x}" for x in states]
+        result[f"HMM_{kind}_Max_Probability"] = np.nan
+        result.loc[mask, f"HMM_{kind}_Max_Probability"] = maximum
+        result[f"HMM_{kind}_Low_Confidence"] = pd.Series(pd.NA, index=result.index, dtype="boolean")
+        result.loc[mask, f"HMM_{kind}_Low_Confidence"] = maximum < threshold
+    return result

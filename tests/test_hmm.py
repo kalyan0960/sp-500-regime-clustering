@@ -26,6 +26,9 @@ from market_regime.hmm_model import (
     ordered_stress_states,
     aligned_state_crosstab,
     reconstruct_candidate,
+    ordered_state_mapping,
+    reorder_probabilities,
+    selected_assignments,
     training_feature_scaler,
     validate_features,
     validate_markov,
@@ -258,3 +261,66 @@ def test_alignment_crosstab_ordering_and_external_variable_exclusion():
     assert set(mapping) == {0, 1, 2}
     with pytest.raises(HMMValidationError):
         validate_features(["Log_Return", "VIX_Close", "Drawdown_252"])
+
+
+def test_ordered_mapping_and_probability_columns_follow_training_profiles():
+    profiles = pd.DataFrame({"state": [0, 1, 2],
+        "mean_GARCH_Volatility_TrainFit": [2.0, 1.0, 1.0],
+        "mean_Drawdown_252": [-.2, -.3, -.1], "mean_Log_Return": [0., 0., -.1]})
+    mapping = ordered_state_mapping(profiles)
+    assert mapping == {0: 3, 1: 2, 2: 1}
+    reordered = reorder_probabilities([[.2, .3, .5]], mapping)
+    assert np.allclose(reordered, [[.5, .3, .2]])
+
+
+def _assignment_fixture():
+    observations = np.vstack([np.zeros((20, 3)), np.full((20, 3), 3.0)])
+    fitted = fit_hmm_candidate(observations, 2, "diag", seed=7, n_iter=50)["model"]
+    scaler = hmm_model.StandardScaler().fit(observations[:30])
+    # Re-express the fitted model for observations transformed by this scaler.
+    fitted.means_ = (fitted.means_ - scaler.mean_) / scaler.scale_
+    covars = np.diagonal(fitted.covars_, axis1=1, axis2=2) / scaler.scale_**2
+    fitted.covars_ = covars
+    frame = pd.DataFrame({"Date": pd.date_range("2017-12-01", periods=41),
+        "Log_Return": np.r_[observations[:, 0], np.nan],
+        "GARCH_Volatility_TrainFit": np.r_[observations[:, 1], 1.],
+        "Drawdown_252": np.r_[observations[:, 2], 1.],
+        "Abnormal_Volume": 9., "VIX_Close": 8., "GARCH_Volatility_FullSample": 99.})
+    return frame, scaler, fitted
+
+
+def test_selected_assignments_probability_argmax_confidence_and_ineligible_rows():
+    frame, scaler, model = _assignment_fixture()
+    result = selected_assignments(frame, scaler, model, {0: 1, 1: 2}, "2017-12-31")
+    eligible = result.HMM_Eligible
+    for kind in ("Filtered", "Smoothed"):
+        columns = [f"HMM_{kind}_Probability_State_{x}" for x in (1, 2)]
+        values = result.loc[eligible, columns].to_numpy()
+        assert np.isfinite(values).all() and ((values >= 0) & (values <= 1)).all()
+        assert np.allclose(values.sum(axis=1), 1)
+        assert np.array_equal(result.loc[eligible, f"HMM_{kind}_State"].to_numpy(), values.argmax(1) + 1)
+        assert np.array_equal(result.loc[eligible, f"HMM_{kind}_Low_Confidence"].to_numpy(), values.max(1) < .60)
+    assert result.loc[~eligible, "HMM_Filtered_State"].isna().all()
+    assert result.loc[~eligible, "HMM_Smoothed_Probability_State_1"].isna().all()
+    assert len(result) == len(frame) and result.Date.is_unique and result.Date.is_monotonic_increasing
+    assert set(result.loc[eligible, "HMM_Sample"]) == {"Train", "Test"}
+
+
+def test_filtering_continues_at_boundary_and_ignores_future_and_external_variables():
+    frame, scaler, model = _assignment_fixture()
+    base = selected_assignments(frame, scaler, model, {0: 1, 1: 2}, "2017-12-31")
+    altered = frame.copy()
+    altered.loc[altered.Date > "2017-12-25", FEATURES] = 1_000
+    altered["Abnormal_Volume"] = -1e9; altered["VIX_Close"] = 1e9
+    changed = selected_assignments(altered, scaler, model, {0: 1, 1: 2}, "2017-12-31")
+    columns = [f"HMM_Filtered_Probability_State_{x}" for x in (1, 2)]
+    historical = frame.Date <= "2017-12-25"
+    assert np.allclose(base.loc[historical, columns], changed.loc[historical, columns])
+    external_only = frame.copy(); external_only["Abnormal_Volume"] *= -99; external_only["VIX_Close"] *= 99
+    repeated = selected_assignments(external_only, scaler, model, {0: 1, 1: 2}, "2017-12-31")
+    pd.testing.assert_frame_equal(base[columns], repeated[columns])
+    eligible_x = scaler.transform(frame.loc[frame[FEATURES].notna().all(axis=1), FEATURES])
+    uninterrupted = forward_filter(eligible_x, model.startprob_, model.transmat_, model.means_,
+        np.diagonal(model.covars_, axis1=1, axis2=2))
+    assert np.allclose(base.loc[base.HMM_Eligible, columns], uninterrupted)
+    assert not any("Smoothed" in column for column in columns)
