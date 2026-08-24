@@ -214,3 +214,36 @@ def create_transition_diagnostic_figures(targets: pd.DataFrame, summary: pd.Data
     fig.suptitle("Descriptive Confidence Sensitivity of Transition Rates", fontweight="bold")
     path = output_dir/"transition_confidence_sensitivity.png"; _save(fig, path); paths.append(path)
     return paths
+
+
+def create_volume_analysis_figures(sample, groups, bootstrap, event_summary, robust, confidence, output_dir):
+    """Create the six focused Stage 12 association figures."""
+    set_publication_style(); paths=[]
+    fig,ax=plt.subplots(figsize=(8,5)); sns.violinplot(sample,x="Transition",y="Log_Abnormal_Volume",inner="box",cut=0,
+        palette=["#8D99AE","#F4A261"],ax=ax); ns=sample.groupby("Transition").size()
+    ax.set_xticklabels([f"No transition\nN={ns.get(0,0):,}",f"Transition\nN={ns.get(1,0):,}"])
+    ax.set(title="Log Abnormal Volume by Future Five-Observation Transition",xlabel="Future transition group",ylabel="Log abnormal volume")
+    p=output_dir/"volume_by_future_transition.png"; _save(fig,p); paths.append(p)
+    cells=groups[(groups.Target=="Any_Transition_Within_5D")&(groups.Outcome=="Log_Abnormal_Volume")&(groups.Volatility_Category!="All")]
+    fig,ax=plt.subplots(figsize=(9,5));
+    for tr,label,color in [(0,"No transition","#8D99AE"),(1,"Transition","#F4A261")]:
+        d=cells[cells.Transition_Group==tr]; ax.errorbar(d.Volatility_Category,d.Mean,yerr=[d.Mean-d.CI_Lower,d.CI_Upper-d.Mean],marker="o",label=label,color=color,capsize=4)
+    ax.set(title="Mean Log Abnormal Volume by Transition and Volatility",xlabel="Training-tertile volatility category",ylabel="Mean log abnormal volume"); ax.legend()
+    p=output_dir/"volume_transition_by_volatility.png"; _save(fig,p); paths.append(p)
+    fig,ax=plt.subplots(figsize=(9,5)); b=bootstrap.iloc[:4].copy(); ax.errorbar(b.Point_Estimate,range(len(b)),xerr=[b.Point_Estimate-b.CI_Lower,b.CI_Upper-b.Point_Estimate],fmt="o",capsize=4); ax.axvline(0,color=".3",ls="--"); ax.set_yticks(range(len(b)),b.Volatility_Category_or_Contrast); ax.set(title="Block-Bootstrap Transition Minus No-Transition Effects",xlabel="Mean log abnormal-volume difference")
+    p=output_dir/"volume_effect_sizes.png"; _save(fig,p); paths.append(p)
+    e=event_summary[(event_summary.Restriction=="All_Training_Events")&(event_summary.Event_Type=="All")]
+    fig,ax=plt.subplots(figsize=(10,5)); ax.plot(e.Event_Time,e.Mean_Log_Abnormal_Volume,label=f"Mean (unique events N={int(e.Unique_Events.max())})"); ax.plot(e.Event_Time,e.Median_Log_Abnormal_Volume,label="Median"); ax.fill_between(e.Event_Time,e.CI_Lower,e.CI_Upper,alpha=.2); ax.axvline(0,color="#D1495B",ls="--",label="Destination-state date"); ax.set(title="Abnormal Volume Around Unique Filtered-State Transitions",xlabel="Event time (trading observations)",ylabel="Log abnormal volume"); ax.legend()
+    p=output_dir/"transition_event_volume_path.png"; _save(fig,p); paths.append(p)
+    sec=robust[(robust.Analysis=="Primary two-group")&(robust.Test=="Welch unequal-variance t-test")&(robust.Sample_Restriction=="Secondary training")].copy()
+    secondary_groups=groups[(groups.Sample_Restriction=="Secondary training")&(groups.Outcome=="Log_Abnormal_Volume")]
+    errors=[]
+    for target in sec.Target:
+        cells=secondary_groups[secondary_groups.Target.eq(target)].set_index("Transition_Group")
+        errors.append(1.96*np.sqrt(cells.loc[1,"SE"]**2+cells.loc[0,"SE"]**2))
+    fig,ax=plt.subplots(figsize=(10,5)); ax.barh(sec.Target.str.replace("_Within_5D","",regex=False),sec.Mean_Difference,
+        xerr=errors,color="#457B9D",capsize=4); ax.axvline(0,color=".3",ls="--"); ax.set(title="Secondary Transition-Type Volume Differences",xlabel="Transition minus no-transition mean log-volume difference (approx. 95% CI)",ylabel="Target")
+    p=output_dir/"transition_type_volume_comparison.png"; _save(fig,p); paths.append(p)
+    fig,ax=plt.subplots(figsize=(8,5)); c=confidence; sns.barplot(c,x="Restriction",y="Mean_Difference",palette=["#8D99AE","#2A9D8F"],ax=ax); ax.axhline(0,color=".3",ls="--"); ax.set(title="Confidence-Window Robustness Comparison",xlabel="Sample restriction",ylabel="Mean log-volume difference")
+    p=output_dir/"volume_confidence_robustness.png"; _save(fig,p); paths.append(p)
+    return paths
