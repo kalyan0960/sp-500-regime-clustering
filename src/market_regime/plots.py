@@ -169,3 +169,48 @@ def create_hmm_diagnostic_figures(frame: pd.DataFrame, profiles: pd.DataFrame,
     for name, function, args in jobs:
         path = output_dir / name; function(*args, path); paths.append(path)
     return paths
+
+
+def create_transition_diagnostic_figures(targets: pd.DataFrame, summary: pd.DataFrame,
+                                         counts: pd.DataFrame, episodes: pd.DataFrame,
+                                         confidence: pd.DataFrame, output_dir: Path) -> list[Path]:
+    """Create the four descriptive Stage 11 transition figures."""
+    set_publication_style(); output_dir.mkdir(parents=True, exist_ok=True); paths = []
+    wanted = ["Any_Transition_Within", "Stress_Entry_Within", "Stress_Exit_Within", "Acute_Entry_Within"]
+    data = summary.loc[summary["sample"].isin(["Train", "Test"])].copy()
+    data = data.loc[data.apply(lambda row: any(row.target == f"{base}_{row.horizon}D" for base in wanted), axis=1)]
+    data["Target"] = data.target.str.replace(r"_\d+D$", "", regex=True).str.replace("_", " ")
+    fig, axes = plt.subplots(2, 2, figsize=(12, 8), sharey=False)
+    for base, ax in zip(wanted, axes.flat):
+        part = data.loc[data.target.str.startswith(base)]
+        sns.barplot(part, x="horizon", y="event_rate", hue="sample", palette=["#6C757D", "#457B9D"], ax=ax)
+        ax.set(title=base.replace("_Within", "").replace("_", " "), xlabel="Horizon (trading observations)", ylabel="Event rate")
+        ax.yaxis.set_major_formatter(plt.matplotlib.ticker.PercentFormatter(1)); ax.legend(title="Sample")
+    fig.suptitle("Filtered-State Transition Event Rates by Horizon", fontweight="bold"); path = output_dir/"transition_event_rates_by_horizon.png"; _save(fig, path); paths.append(path)
+
+    matrix_data = counts.loc[counts.Sample.eq("All")].pivot(index="From_State", columns="To_State", values="Empirical_Probability")
+    fig, ax = plt.subplots(figsize=(7, 6)); sns.heatmap(matrix_data, annot=True, fmt=".3f", cmap="Blues", vmin=0, vmax=1,
+        square=True, cbar_kws={"label": "Empirical probability"}, ax=ax)
+    ax.set(title="Empirical One-Observation Filtered-State Transitions", xlabel="To ordered state", ylabel="From ordered state")
+    path = output_dir/"filtered_transition_probabilities.png"; _save(fig, path); paths.append(path)
+
+    fig, ax = plt.subplots(figsize=(10, 5.5)); sns.boxplot(episodes.loc[episodes.Sample.isin(["Train", "Test"])],
+        x="State", y="Length", hue="Sample", palette=["#6C757D", "#457B9D"], showfliers=True, ax=ax)
+    ax.set_yscale("log"); ax.set(title="Filtered-State Episode Lengths by Sample", xlabel="Ordered state",
+        ylabel="Episode length (log-scaled trading observations)"); ax.legend(title="Sample")
+    path = output_dir/"filtered_episode_lengths.png"; _save(fig, path); paths.append(path)
+
+    selected = confidence.loc[(confidence["sample"] == "All") & confidence.target.str.match(
+        r"^(Any_Transition|Stress_Entry|Stress_Exit|Acute_Entry)_Within")].copy()
+    long = selected.melt(id_vars=["horizon", "target"], value_vars=["all_event_rate", "all_high_confidence_event_rate"],
+        var_name="Window", value_name="Event_Rate")
+    long["Window"] = long.Window.map({"all_event_rate": "All available", "all_high_confidence_event_rate": "All high confidence"})
+    long["Target"] = long.target.str.replace(r"_Within_\d+D$", "", regex=True).str.replace("_", " ")
+    fig, axes = plt.subplots(2, 2, figsize=(12, 8))
+    for target, ax in zip(long.Target.unique(), axes.flat):
+        part = long.loc[long.Target.eq(target)]; sns.barplot(part, x="horizon", y="Event_Rate", hue="Window",
+            palette=["#8D99AE", "#2A9D8F"], ax=ax)
+        ax.set(title=target, xlabel="Horizon", ylabel="Event rate"); ax.yaxis.set_major_formatter(plt.matplotlib.ticker.PercentFormatter(1)); ax.legend(title="Window")
+    fig.suptitle("Descriptive Confidence Sensitivity of Transition Rates", fontweight="bold")
+    path = output_dir/"transition_confidence_sensitivity.png"; _save(fig, path); paths.append(path)
+    return paths
