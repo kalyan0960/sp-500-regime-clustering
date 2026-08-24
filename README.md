@@ -2,9 +2,9 @@
 
 ## Overview
 
-This repository preserves an original exploratory K-means study of S&P 500 market regimes and provides the structure for a revised research pipeline. The original work is retained as a historical baseline. The revised pipeline is planned and will examine SPY market regimes with GARCH conditional volatility, a hidden Markov model (HMM), and chronological regression tests of abnormal volume as a predictor of future regime transitions.
+This repository preserves an original exploratory K-means study and implements a leakage-safe SPY market-regime pipeline using GARCH volatility, a time-aware HMM, transition analysis, abnormal-volume association tests, and chronological logistic prediction.
 
-No revised GARCH, HMM, ANOVA, or regression results have been implemented in this repository yet. The methodological specification is available in [docs/RESEARCH_DESIGN.md](docs/RESEARCH_DESIGN.md).
+The final synthesis finds four economically interpretable HMM states. Abnormal volume did not provide stable general incremental evidence for five-observation transition prediction: PR AUC improved slightly, but ROC AUC, log loss, calibration, and the interaction model did not show consistent improvement. Transition-specific findings remain exploratory.
 
 ## Project layout
 
@@ -33,11 +33,14 @@ pip install -r requirements.txt
 
 The project is configured as a `src`-layout package. During development, it can be installed in editable mode with `pip install -e .`.
 
-## Research status
+## Final synthesis
 
-- Original K-means notebooks: preserved exploratory baseline.
-- Stage 6 data validation and Stage 7 pre-GARCH feature construction: implemented.
-- Stage 8 GARCH conditional-volatility estimation: implemented; HMM regimes remain planned.
-- Transition outcomes, supplementary ANOVA, and logistic regression: planned.
+Stages 6–14 are implemented; Notebooks 01–04 remain the preserved exploratory baseline. Reproduce the paper-ready synthesis after generating prior-stage outputs with:
+
+```powershell
+.\.venv312\Scripts\python.exe scripts\run_final_synthesis.py
+```
+
+Machine-readable results, ten final tables, validation metadata, and seven figures are written to `outputs/final_synthesis/`. Run `python -m pytest -q` for repository-wide validation.
 
 The project distinguishes descriptive analysis, association, prediction, and causation. The revised methods are intended to test predictive value on a later unseen period; they do not, by themselves, establish causation.
