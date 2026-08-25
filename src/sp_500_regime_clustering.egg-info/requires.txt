@@ -1,0 +1,16 @@
+pandas<3.1,>=2.2
+numpy<3,>=1.26
+yfinance<2,>=0.2
+scikit-learn<2,>=1.4
+matplotlib<4,>=3.8
+seaborn<1,>=0.13
+scipy<2,>=1.11
+statsmodels<1,>=0.14
+arch<9,>=7
+hmmlearn<1,>=0.3
+PyYAML<7,>=6
+ipykernel<7,>=6
+nbformat<6,>=5.9
+nbclient<1,>=0.10
+pytest<10,>=8
+pingouin<1,>=0.5.4

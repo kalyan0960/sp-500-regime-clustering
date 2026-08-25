@@ -1,1 +1,46 @@
-data/
+# Python environments, caches, and test artifacts
+.venv/
+venv/
+.venv312/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.test-temp/
+stage*-test-tmp/
+
+# Jupyter and editor files
+.ipynb_checkpoints/
+.ipynb_checkpoints
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Local environment settings
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Generated data and outputs. Documentation and the preserved historical figures remain trackable.
+/data/*.csv
+/data/*.parquet
+/data/raw/*
+/data/processed/*
+/data/external/*
+/outputs/figures/*
+!/outputs/figures/regime_classification.png
+!/outputs/figures/regime_validation.png
+/outputs/tables/*
+/outputs/models/*
+/outputs/tmp/
+/outputs/final_synthesis/
+*.joblib
+*.pkl
+*.h5
+*.keras
+*.pt
+*.pth

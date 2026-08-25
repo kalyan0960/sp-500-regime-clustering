@@ -1,0 +1,66 @@
+Metadata-Version: 2.4
+Name: sp-500-regime-clustering
+Version: 0.1.0
+Summary: Research infrastructure for market-regime and abnormal-volume analysis.
+Requires-Python: <3.13,>=3.12
+Description-Content-Type: text/markdown
+Requires-Dist: pandas<3.1,>=2.2
+Requires-Dist: numpy<3,>=1.26
+Requires-Dist: yfinance<2,>=0.2
+Requires-Dist: scikit-learn<2,>=1.4
+Requires-Dist: matplotlib<4,>=3.8
+Requires-Dist: seaborn<1,>=0.13
+Requires-Dist: scipy<2,>=1.11
+Requires-Dist: statsmodels<1,>=0.14
+Requires-Dist: arch<9,>=7
+Requires-Dist: hmmlearn<1,>=0.3
+Requires-Dist: PyYAML<7,>=6
+Requires-Dist: ipykernel<7,>=6
+Requires-Dist: nbformat<6,>=5.9
+Requires-Dist: nbclient<1,>=0.10
+Requires-Dist: pytest<10,>=8
+Requires-Dist: pingouin<1,>=0.5.4
+
+# Market Regime Identification and Abnormal-Volume Transition Prediction
+
+## Overview
+
+This repository preserves an original exploratory K-means study of S&P 500 market regimes and provides the structure for a revised research pipeline. The original work is retained as a historical baseline. The revised pipeline is planned and will examine SPY market regimes with GARCH conditional volatility, a hidden Markov model (HMM), and chronological regression tests of abnormal volume as a predictor of future regime transitions.
+
+No revised GARCH, HMM, ANOVA, or regression results have been implemented in this repository yet. The methodological specification is available in [docs/RESEARCH_DESIGN.md](docs/RESEARCH_DESIGN.md).
+
+## Project layout
+
+```text
+configs/                 Research configuration
+data/                    Local raw, processed, and external data checkpoints
+docs/                    Research design and preserved original progress narrative
+notebooks/               Original Week 1-5 exploratory K-means notebooks
+outputs/                 Generated figures, tables, and model artifacts
+src/market_regime/       Planned reusable research-code package
+tests/                   Planned validation and regression tests
+```
+
+The original progress narrative is preserved at [docs/ORIGINAL_PROGRESS.md](docs/ORIGINAL_PROGRESS.md). The two historical K-means figures are retained in `outputs/figures/`.
+
+## Setup
+
+Python 3.12 is the project target. The existing Python 3.14 environments are retained for historical work, but the complete planned dependency set could not be verified as reliably available for Python 3.14.
+
+```powershell
+py -3.12 -m venv .venv312
+.\.venv312\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+The project is configured as a `src`-layout package. During development, it can be installed in editable mode with `pip install -e .`.
+
+## Research status
+
+- Original K-means notebooks: preserved exploratory baseline.
+- Revised feature construction and data validation: planned.
+- GARCH conditional volatility and HMM regimes: planned.
+- Transition outcomes, supplementary ANOVA, and logistic regression: planned.
+
+The project distinguishes descriptive analysis, association, prediction, and causation. The revised methods are intended to test predictive value on a later unseen period; they do not, by themselves, establish causation.

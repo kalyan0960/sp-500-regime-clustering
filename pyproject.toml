@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sp-500-regime-clustering"
+version = "0.1.0"
+description = "Research infrastructure for market-regime and abnormal-volume analysis."
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "pandas>=2.2,<3.1",
+    "numpy>=1.26,<3",
+    "yfinance>=0.2,<2",
+    "scikit-learn>=1.4,<2",
+    "matplotlib>=3.8,<4",
+    "seaborn>=0.13,<1",
+    "scipy>=1.11,<2",
+    "statsmodels>=0.14,<1",
+    "arch>=7,<9",
+    "hmmlearn>=0.3,<1",
+    "PyYAML>=6,<7",
+    "ipykernel>=6,<7",
+    "nbformat>=5.9,<6",
+    "nbclient>=0.10,<1",
+    "pytest>=8,<10",
+    "pingouin>=0.5.4,<1",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
