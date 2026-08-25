@@ -1,4 +1,6 @@
-# Hypothesis and Week 1-5 Progress
+# Original Exploratory Hypothesis and Week 1–5 Progress
+
+> Historical record: this document preserves the original exploratory K-means work and its expectations. It is not the final methodology or final empirical conclusion. See [RESEARCH_DESIGN.md](RESEARCH_DESIGN.md) and [FINAL_RESULTS.md](FINAL_RESULTS.md) for the revised leakage-safe design and completed findings.
 
 ## Research Hypothesis
 

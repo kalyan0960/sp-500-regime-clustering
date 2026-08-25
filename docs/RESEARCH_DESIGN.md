@@ -48,7 +48,7 @@ In this expression, \(r_t\) is the log return and \(\log\) is the natural logari
 
 ### 4.2 Conditional volatility and drawdown
 
-The planned conditional-volatility measure is the conditional standard deviation, \(\sigma_t\), from a GARCH(1,1) model with Student-t innovations. This model is appropriate because financial returns commonly show volatility clustering and heavy tails. The GARCH component is planned methodology; it has not yet been implemented.
+The conditional-volatility measure is the conditional standard deviation, \(\sigma_t\), from a GARCH(1,1) model with Student-t innovations. This model is appropriate because financial returns commonly show volatility clustering and heavy tails. The finalized implementation estimates the model on training data and recursively carries the fixed parameters forward.
 
 For prediction at date \(t\), \(\sigma_t\) will be estimated without access to observations after date \(t\). This time ordering prevents look-ahead leakage.
 
@@ -80,21 +80,21 @@ LogAV_t=\log(AV_t).
 
 The continuous values of \(AV_t\) and \(LogAV_t\) are retained. An observation with \(AV_t>1\) is above its recent average, but is not automatically treated as an economically important shock. Training-period-defined high- and low-volume tails may later be examined as robustness checks.
 
-## 5. Planned regime-identification methodology
+## 5. Implemented regime-identification methodology
 
 ### 5.1 Main hidden Markov model
 
-The planned primary regime model is a hidden Markov model (HMM). Let \(S_t\) denote the unobserved market regime on day \(t\). The HMM will use the observed feature vector
+The primary regime model is a hidden Markov model (HMM). Let \(S_t\) denote the unobserved market regime on day \(t\). The HMM uses the observed feature vector
 
 \[
 X_t = (r_t,\sigma_t,DD^{252}_t),
 \]
 
-where \(X_t\) is the set of observed market features, \(r_t\) is log return, \(\sigma_t\) is leakage-safe GARCH conditional volatility, and \(DD^{252}_t\) is 252-day drawdown. The HMM component is planned methodology and has not yet been implemented.
+where \(X_t\) is the set of observed market features, \(r_t\) is log return, \(\sigma_t\) is leakage-safe GARCH conditional volatility, and \(DD^{252}_t\) is 252-day drawdown. Candidate comparison selected a four-state diagonal-covariance Gaussian HMM fitted on training data only.
 
 Abnormal volume and VIX are excluded from \(X_t\). This separation is intentional: it prevents abnormal volume from helping define the regimes that it will later be asked to predict, and it preserves VIX as an external validation measure and regression control.
 
-Models with two through five hidden states will be compared. Estimation will begin with diagonal covariance matrices because they are more parsimonious and may be more stable for a modest sample. Full covariance models will be considered only when they are estimable and stable. Multiple random initializations will be used because HMM estimates can depend on starting values.
+Models with two through five hidden states were compared. Estimation included parsimonious diagonal covariance matrices and full covariance candidates where estimable. Multiple random initializations were used because HMM estimates can depend on starting values.
 
 The comparison will consider Bayesian information criterion (BIC), convergence, stability across initializations, state size, transition probabilities, episode duration, one-day episodes, and the economic interpretation of return, volatility, and drawdown profiles. BIC balances in-sample fit against model complexity. The number of states will therefore be selected from the evidence rather than fixed in advance.
 
@@ -104,11 +104,11 @@ Smoothed states use information from the full sample and are suitable only for r
 
 ### 5.2 Revised K-means baseline
 
-A revised K-means baseline is planned for comparison with the HMM. It will use the same three regime features, \(r_t\), \(\sigma_t\), and \(DD^{252}_t\), rather than abnormal volume or VIX. This matched feature set makes the comparison more informative and avoids circularly using volume to construct and test regimes.
+A revised K-means baseline was implemented for comparison with the HMM. It uses the same three regime features, \(r_t\), \(\sigma_t\), and \(DD^{252}_t\), rather than abnormal volume or VIX. This matched feature set makes the comparison more informative and avoids circularly using volume to construct and test regimes.
 
-The scaler will be fitted on training-period observations only and then applied unchanged to test-period observations. Values of \(K\) from 2 through 5 will be reported transparently. K-means cluster numbers have no intrinsic meaning and will be relabelled only after their feature profiles have been reviewed. This revised K-means analysis is planned methodology; it has not yet been implemented.
+The scaler was fitted on training-period observations only and applied unchanged to test-period observations. Values of \(K\) from 2 through 5 are reported transparently. K-means cluster numbers have no intrinsic meaning and were interpreted only after their feature profiles were reviewed.
 
-## 6. Planned transition outcomes
+## 6. Implemented transition outcomes
 
 The transition analysis will define forward-looking outcomes at horizons \(h\in\{1,5,10,20\}\) trading days, with \(h=5\) as the primary horizon. The forecast origin is day \(t\). Dates without sufficient future observations through \(t+h\) will remain missing rather than being coded as zero.
 
@@ -120,9 +120,9 @@ Let \(s^*\) denote the state later identified as stressed after profile-based la
 | Entry into stress, \(Y_{stress}(t,h)\) | Equals 1 when the market enters \(s^*\) at least once from \(t+1\) through \(t+h\). |
 | Exit from stress, \(Y_{exit}(t,h)\) | Equals 1 when the market leaves \(s^*\) at least once from \(t+1\) through \(t+h\). |
 
-These outcomes will be constructed with real-time-safe state information for the predictive setting. They are planned methodology and have not yet been implemented.
+These outcomes were constructed with real-time-safe filtered state information. Dates without complete future windows remain structurally missing, and training windows crossing the cutoff are purged.
 
-## 7. Planned predictive regression analysis
+## 7. Implemented predictive regression analysis
 
 Binary logistic regression is the principal predictive test. For any transition outcome \(Y_{t,h}\), \(P(Y_{t,h}=1)\) is the probability of an event during the next \(h\) trading days, and \(\operatorname{logit}(p)=\log[p/(1-p)]\) is the log-odds transformation of a probability \(p\).
 
@@ -148,11 +148,11 @@ In these equations, \(\beta_0\) is the intercept; \(\beta_1\) through \(\beta_6\
 
 The formal volume-coefficient hypothesis is \(H_0:\beta_5=0\) against \(H_A:\beta_5\ne0\), where \(H_0\) is the null hypothesis and \(H_A\) is the alternative hypothesis. The principal empirical question, however, is whether adding \(LogAV_t\) improves prediction on the unseen test period, not only whether its p-value is below 0.05.
 
-The regression analysis is planned methodology and has not yet been implemented. Evaluation will use the chronological training/test split rather than random splitting. Reported results will include coefficients, odds ratios, confidence intervals, p-values, predicted-probability changes, ROC-AUC, precision, recall, F1 score, Brier score, log loss, calibration, class balance, and naive benchmarks. Overlapping horizons and serial dependence will be addressed through block-bootstrap inference, time-series-appropriate inference, and/or non-overlapping-horizon robustness samples.
+The regression analysis uses the chronological training/test split rather than random splitting. Reported results include coefficients, odds ratios, confidence intervals, p-values, ROC-AUC, precision, recall, F1 score, Brier score, log loss, calibration, class balance, and a prevalence benchmark. Expanding-window validation includes a horizon-sized purge, and paired moving-block bootstrap intervals address temporal dependence in incremental test metrics.
 
 Logistic regression measures predictive association. It does not by itself demonstrate that abnormal volume causes a market transition.
 
-## 8. Planned supplementary statistical analysis
+## 8. Implemented supplementary statistical analysis
 
 The supplementary two-factor analysis will use continuous abnormal volume as the outcome. The factors will be transition type and a low, medium, or high GARCH-volatility category, together with their interaction. In schematic form,
 
@@ -162,7 +162,7 @@ AV_t=\alpha+\text{transition-type effect}+\text{GARCH-category effect}+\text{int
 
 Here, \(\alpha\) is the intercept and \(\varepsilon_t\) is the residual, or unexplained, component. GARCH-category thresholds will be calculated from the training period only and then applied unchanged to later observations. Categorising continuous GARCH volatility loses information; for that reason, this analysis is supplementary to the continuous-variable logistic regression rather than the main predictive test.
 
-Welch one-way ANOVA, Kruskal-Wallis tests, Games-Howell post-hoc comparisons, effect sizes, and block-bootstrap or episode-level robustness analyses may also be used where appropriate. ANOVA is retrospective comparison, not prediction. Abnormal-volume differences across regimes that were themselves constructed with abnormal volume will not be treated as independent confirmatory evidence. These analyses are planned methodology and have not yet been implemented.
+Welch tests, Mann–Whitney tests, Games–Howell post-hoc comparisons, effect sizes, and moving-block bootstrap analyses were used where appropriate. ANOVA is retrospective comparison, not prediction. Abnormal-volume differences across regimes that were themselves constructed with abnormal volume are not treated as independent confirmatory evidence.
 
 ## 9. Data products, reproducibility, and testing
 
